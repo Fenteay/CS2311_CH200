@@ -1,0 +1,27 @@
+FROM python:3.10-slim
+
+WORKDIR /workspace
+
+# System dependencies for OpenCV
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV TORCH_HOME=/tmp/torch
+
+# Upgrade pip
+RUN pip install --no-cache-dir --upgrade pip
+
+# Install Python dependencies (CPU-only PyTorch)
+COPY requirements_cpu.txt .
+RUN pip install --no-cache-dir -r requirements_cpu.txt
+
+# Copy project code
+COPY . .
+
+# Default command
+CMD ["/bin/bash"]

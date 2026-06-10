@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  fl_server:
+    build:
+      context: .
+      dockerfile: Dockerfile.federated
+    container_name: tt_sfuda_fl_server
+    command: >
+      python federated_flwr_server.py
+      --host 0.0.0.0:8080
+      --dataset ${DATASET:-leafandmask_full}
+      --arch ${ARCH:-UNet}
+      --img-ext ${IMG_EXT:-.png}
+      --rounds ${ROUNDS:-20}
+      --num-clients 3
+      --local-epochs ${LOCAL_EPOCHS:-1}
+      --lr ${LR:-1e-4}
+      --weight-decay ${WEIGHT_DECAY:-1e-4}
+      --save-name ${SAVE_NAME:-multi_dataset_fedavg_3containers}
+      --init-weights ${INIT_WEIGHTS:-}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/workspace
+    networks:
+      - fl_network
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  fl_client_0:
+    build:
+      context: .
+      dockerfile: Dockerfile.federated
+    container_name: tt_sfuda_fl_client_0
+    command: >
+      python federated_flwr_client.py
+      --server-address fl_server:8080
+      --client-id 0
+      --num-clients 3
+      --dataset leafandmask_full
+      --arch ${ARCH:-UNet}
+      --img-ext ${IMG_EXT:-.png}
+      --batch-size ${BATCH_SIZE:-4}
+      --local-epochs ${LOCAL_EPOCHS:-1}
+      --lr ${LR:-1e-4}
+      --weight-decay ${WEIGHT_DECAY:-1e-4}
+      --auto-pos-weight
+      --num-workers 0
+    depends_on:
+      - fl_server
+    volumes:
+      - ./:/workspace
+    networks:
+      - fl_network
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATASET=leafandmask_full
+
+  fl_client_1:
+    build:
+      context: .
+      dockerfile: Dockerfile.federated
+    container_name: tt_sfuda_fl_client_1
+    command: >
+      python federated_flwr_client.py
+      --server-address fl_server:8080
+      --client-id 1
+      --num-clients 3
+      --dataset leaf_hrf_style
+      --arch ${ARCH:-UNet}
+      --img-ext ${IMG_EXT:-.png}
+      --batch-size ${BATCH_SIZE:-4}
+      --local-epochs ${LOCAL_EPOCHS:-1}
+      --lr ${LR:-1e-4}
+      --weight-decay ${WEIGHT_DECAY:-1e-4}
+      --auto-pos-weight
+      --num-workers 0
+    depends_on:
+      - fl_server
+    volumes:
+      - ./:/workspace
+    networks:
+      - fl_network
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATASET=leaf_hrf_style
+
+  fl_client_2:
+    build:
+      context: .
+      dockerfile: Dockerfile.federated
+    container_name: tt_sfuda_fl_client_2
+    command: >
+      python federated_flwr_client.py
+      --server-address fl_server:8080
+      --client-id 2
+      --num-clients 3
+      --dataset leaf_rite_style
+      --arch ${ARCH:-UNet}
+      --img-ext ${IMG_EXT:-.png}
+      --batch-size ${BATCH_SIZE:-4}
+      --local-epochs ${LOCAL_EPOCHS:-1}
+      --lr ${LR:-1e-4}
+      --weight-decay ${WEIGHT_DECAY:-1e-4}
+      --auto-pos-weight
+      --num-workers 0
+    depends_on:
+      - fl_server
+    volumes:
+      - ./:/workspace
+    networks:
+      - fl_network
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATASET=leaf_rite_style
+
+networks:
+  fl_network:
+    driver: bridge

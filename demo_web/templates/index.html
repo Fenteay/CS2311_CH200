@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>TT-SFUDA + Federated Learning Demo</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">🌿 TT-SFUDA Leaf Seg</div>
+  <nav>
+    <a href="#dashboard" class="nav-link active">Dashboard</a>
+    <a href="#gallery-section" class="nav-link">Gallery</a>
+    <a href="#predict-section" class="nav-link">Predict</a>
+    <a href="#adapt-section" class="nav-link">Adaptation Demo</a>
+  </nav>
+  <div class="device-badge" id="deviceBadge">Loading...</div>
+</header>
+
+<main>
+
+<!-- ════════════════════════════════════════════════════════ SECTION 1 — DASHBOARD -->
+<section id="dashboard" class="section">
+  <h1>Federated Learning + Adaptation — Evaluation Dashboard</h1>
+
+  <!-- Metrics cards -->
+  <div class="cards-row" id="metricCards">
+    <div class="card">
+      <div class="card-label">FL Rounds (best run)</div>
+      <div class="card-value" id="cv-rounds">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">FL Clients</div>
+      <div class="card-value">3</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Source-Only Dice</div>
+      <div class="card-value text-yellow" id="cv-src-dice">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Adapted Dice</div>
+      <div class="card-value text-green" id="cv-ada-dice">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Train IoU (stage 1)</div>
+      <div class="card-value text-blue" id="cv-train-iou">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Refine IoU (stage 2)</div>
+      <div class="card-value text-purple" id="cv-refine-iou">—</div>
+    </div>
+  </div>
+
+  <!-- Charts row -->
+  <div class="charts-row">
+    <div class="chart-box">
+      <h3>Adaptation Metrics</h3>
+      <canvas id="adaptationChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- FL Round history chart -->
+  <div class="chart-box" style="margin-bottom:1.5rem">
+    <h3>FL Training History — IoU per Round (leafandmask_full_unet_fedavg)</h3>
+    <canvas id="flHistoryChart" height="180"></canvas>
+  </div>
+
+  <!-- Pipeline diagram -->
+  <div class="pipeline-section">
+    <h3>Federated Learning Pipeline</h3>
+    <div class="pipeline">
+      <div class="pipe-step">
+        <div class="pipe-icon">💾</div>
+        <div class="pipe-label">Dataset<br><small>leafandmask_full<br>leaf_hrf_style<br>leaf_rite_style</small></div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step active">
+        <div class="pipe-icon">🐳</div>
+        <div class="pipe-label">Docker FL<br><small>3 Clients × 5 Rounds<br>FedAvg + Warm-start</small></div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step active">
+        <div class="pipe-icon">🧠</div>
+        <div class="pipe-label">Global Model<br><small>UNet (512×512)</small></div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step active">
+        <div class="pipe-icon">🔄</div>
+        <div class="pipe-label">TT-SFUDA<br><small>Pseudo-label<br>Adaptation</small></div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step">
+        <div class="pipe-icon">🌿</div>
+        <div class="pipe-label">Leaf Mask<br><small>Target Domain</small></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════ SECTION 2 — GALLERY -->
+<section id="gallery-section" class="section">
+  <h2>Test Set Results — Ground Truth vs Predicted</h2>
+  <p class="section-desc">
+    So sánh ảnh test với predicted mask. Gallery 1: 118 ảnh supervised (Dice≈0.485). Gallery 2: 20 ảnh FL warm-start adapted (Source Dice≈0.442).
+  </p>
+
+  <div class="gallery-controls">
+    <div class="form-row" style="max-width:520px">
+      <label>Target dataset:</label>
+      <select id="galleryTarget" style="flex:1"></select>
+    </div>
+    <button class="btn-primary" onclick="loadGallery()">Load Gallery</button>
+    <div class="loader" id="galleryLoader"></div>
+  </div>
+
+  <div id="galleryMetrics" class="metrics-txt-box" style="display:none"></div>
+  <div id="galleryStats" class="gallery-stats" style="display:none"></div>
+  <div id="galleryGrid" class="gallery-grid"></div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════ SECTION 3 — PREDICT -->
+<section id="predict-section" class="section">
+  <h2>Segmentation Prediction</h2>
+  <p class="section-desc">Upload a leaf image → get binary mask + heatmap từ model được chọn.<br>
+    <span style="color:var(--green)">✓ Supervised</span> = model train supervised, kết quả tốt &nbsp;|&nbsp;
+    <span style="color:var(--yellow)">🕸️ FL</span> = model federated learning, có thể predict all-white nếu chưa hội tụ.
+  </p>
+
+  <div class="demo-layout">
+    <div class="demo-controls">
+      <label class="file-label" for="predictFile">
+        <span id="predictFileName">Choose image…</span>
+        <input type="file" id="predictFile" accept="image/*">
+      </label>
+      <div class="form-row">
+        <label>Source model:</label>
+        <select id="predictSource"></select>
+      </div>
+      <button class="btn-primary" id="btnPredict" onclick="runPredict()">Run Prediction</button>
+      <div class="loader" id="predictLoader"></div>
+      <div class="error-box" id="predictError"></div>
+      <div class="stats-box" id="predictStats"></div>
+    </div>
+
+    <!-- Disease analysis card -->
+    <div id="diseaseCard" style="display:none" class="disease-card">
+      <div class="disease-verdict" id="diseaseVerdict"></div>
+      <div class="disease-bar-wrap">
+        <div class="disease-bar-label">Vùng bệnh / tổng lá</div>
+        <div class="disease-bar-track">
+          <div class="disease-bar-fill" id="diseaseBarFill"></div>
+        </div>
+        <div class="disease-pct" id="diseasePct"></div>
+      </div>
+      <div class="disease-note" id="diseaseNote"></div>
+    </div>
+
+    <div class="result-panels" id="predictResults" style="display:none">
+      <div class="result-panel">
+        <h4>Input Image</h4>
+        <img id="origImg" alt="original">
+      </div>
+      <div class="result-panel">
+        <h4>Predicted Mask</h4>
+        <img id="maskImg" alt="mask">
+      </div>
+      <div class="result-panel">
+        <h4>Overlay</h4>
+        <img id="overlayImg" alt="overlay">
+      </div>
+      <div class="result-panel">
+        <h4>Probability Heatmap</h4>
+        <img id="heatmapImg" alt="heatmap">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════ SECTION 3 — ADAPT DEMO -->
+<section id="adapt-section" class="section">
+  <h2>Online Adaptation Demo</h2>
+  <p class="section-desc">Upload a single image → see source prediction vs. adapted prediction (mini TT-SFUDA: N gradient steps on pseudo-label).</p>
+
+  <div class="demo-layout">
+    <div class="demo-controls">
+      <label class="file-label" for="adaptFile">
+        <span id="adaptFileName">Choose image…</span>
+        <input type="file" id="adaptFile" accept="image/*">
+      </label>
+      <div class="form-row">
+        <label>Source model:</label>
+        <select id="adaptSource"></select>
+      </div>
+      <div class="form-row">
+        <label>Adaptation steps:</label>
+        <input type="number" id="adaptSteps" value="3" min="1" max="20" class="small-input">
+      </div>
+      <button class="btn-primary" id="btnAdapt" onclick="runAdapt()">Run Adaptation</button>
+      <div class="loader" id="adaptLoader"></div>
+      <div class="error-box" id="adaptError"></div>
+
+      <!-- Loss chart -->
+      <div id="adaptLossBox" style="display:none">
+        <h4>Adaptation Loss per Step</h4>
+        <canvas id="adaptLossChart" height="160"></canvas>
+      </div>
+    </div>
+
+    <div class="adapt-compare" id="adaptResults" style="display:none">
+      <!-- Before column -->
+      <div class="adapt-col before">
+        <div class="adapt-header">
+          <span class="badge badge-before">Before Adaptation (Source)</span>
+          <span class="fg-pill" id="srcFgPill"></span>
+        </div>
+        <div class="img-row">
+          <div class="result-panel">
+            <h4>Input Image</h4>
+            <img id="adaptOrigImg" alt="original">
+          </div>
+          <div class="result-panel">
+            <h4>Mask</h4>
+            <img id="srcMaskImg" alt="source mask">
+          </div>
+          <div class="result-panel">
+            <h4>Overlay</h4>
+            <img id="srcOverlayImg" alt="source overlay">
+          </div>
+        </div>
+      </div>
+
+      <!-- Arrow -->
+      <div class="big-arrow">⟶</div>
+
+      <!-- After column -->
+      <div class="adapt-col after">
+        <div class="adapt-header">
+          <span class="badge badge-after">After Adaptation</span>
+          <span class="fg-pill" id="adaFgPill"></span>
+        </div>
+        <div class="img-row">
+          <div class="result-panel">
+            <h4>Input Image</h4>
+            <img id="adaptOrigImg2" alt="original">
+          </div>
+          <div class="result-panel">
+            <h4>Mask</h4>
+            <img id="adaMaskImg" alt="adapted mask">
+          </div>
+          <div class="result-panel">
+            <h4>Overlay</h4>
+            <img id="adaOverlayImg" alt="adapted overlay">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  TT-SFUDA + Federated Learning Demo &nbsp;|&nbsp; UNet 512×512 &nbsp;|&nbsp; FedAvg (3 clients, 5 rounds, warm-start)
+</footer>
+
+<script src="/static/app.js?v=3"></script>
+</body>
+</html>
