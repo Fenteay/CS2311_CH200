@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>TT-SFUDA + Federated Learning Demo</title>
+<title>Federated Source-Free TT-Adaptation — Plant Disease Seg</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -11,7 +11,7 @@
 
 <!-- ── Header ── -->
 <header>
-  <div class="logo">🌿 TT-SFUDA Leaf Seg</div>
+  <div class="logo">🌿 Leaf Disease Seg</div>
   <nav>
     <a href="#dashboard" class="nav-link active">Dashboard</a>
     <a href="#gallery-section" class="nav-link">Gallery</a>
@@ -25,7 +25,7 @@
 
 <!-- ════════════════════════════════════════════════════════ SECTION 1 — DASHBOARD -->
 <section id="dashboard" class="section">
-  <h1>Federated Learning + Adaptation — Evaluation Dashboard</h1>
+  <h1>Federated Source-Free Test-Time Adaptation — Plant Disease Segmentation</h1>
 
   <!-- Metrics cards -->
   <div class="cards-row" id="metricCards">
@@ -65,7 +65,7 @@
 
   <!-- FL Round history chart -->
   <div class="chart-box" style="margin-bottom:1.5rem">
-    <h3>FL Training History — IoU per Round (leafandmask_full_unet_fedavg)</h3>
+    <h3>FL Training History — Val Dice &amp; IoU per Round (fl_warm_r5_e2, warm-start)</h3>
     <canvas id="flHistoryChart" height="180"></canvas>
   </div>
 
@@ -80,7 +80,7 @@
       <div class="pipe-arrow">→</div>
       <div class="pipe-step active">
         <div class="pipe-icon">🐳</div>
-        <div class="pipe-label">Docker FL<br><small>3 Clients × 5 Rounds<br>FedAvg + Warm-start</small></div>
+        <div class="pipe-label">FL Warm+Hot<br><small>3 Clients × 10 Rounds<br>FedAvg + Warm-start</small></div>
       </div>
       <div class="pipe-arrow">→</div>
       <div class="pipe-step active">
@@ -105,7 +105,9 @@
 <section id="gallery-section" class="section">
   <h2>Test Set Results — Ground Truth vs Predicted</h2>
   <p class="section-desc">
-    So sánh ảnh test với predicted mask. Gallery 1: 118 ảnh supervised (Dice≈0.485). Gallery 2: 20 ảnh FL warm-start adapted (Source Dice≈0.442).
+    So sánh ảnh test với predicted mask.<br>
+    <b>Gallery 1:</b> 118 ảnh supervised baseline (Dice=0.5879).
+    <b>Gallery 2:</b> 20 ảnh FL hot-start adapted (Source Dice=0.5732, Adapted Dice=0.5539).
   </p>
 
   <div class="gallery-controls">
@@ -126,8 +128,9 @@
 <section id="predict-section" class="section">
   <h2>Segmentation Prediction</h2>
   <p class="section-desc">Upload a leaf image → get binary mask + heatmap từ model được chọn.<br>
-    <span style="color:var(--green)">✓ Supervised</span> = model train supervised, kết quả tốt &nbsp;|&nbsp;
-    <span style="color:var(--yellow)">🕸️ FL</span> = model federated learning, có thể predict all-white nếu chưa hội tụ.
+    <span style="color:var(--green)">✓ Supervised</span> = baseline (Dice=0.5879) &nbsp;| 
+    <span style="color:var(--yellow)">🕸️ FL warm 5r</span> = Dice=0.5476 &nbsp;| 
+    <span style="color:var(--yellow)">🕸️ FL hot 10r</span> = best (Source=0.5732, Adapted=0.5539)
   </p>
 
   <div class="demo-layout">

@@ -55,18 +55,22 @@ GALLERY_CONFIG = {
     "leafandmask_full": {
         "img_dir":     ROOT / "inputs" / "inputs" / "leafandmask_full" / "test" / "images",
         "gt_dir":      ROOT / "inputs" / "inputs" / "leafandmask_full" / "test" / "masks" / "0",
-        "pred_dir":    ROOT / "leafandmask_full_source_eval_fix8",
-        "compare_dir": ROOT / "leafandmask_full_source_eval_fix8" / "compare",
-        "metrics_file":ROOT / "leafandmask_full_source_eval_fix8" / "metrics.txt",
-        "label": "leafandmask_full (supervised source, Dice≈0.485)",
+        "pred_dir":    ROOT / "results" / "leafandmask_full_unet_source_eval",
+        "pred_prefix": "leafandmask_full__",   # train_source saves as <prefix>__<id>.jpg
+        "pred_ext":    ".jpg",
+        "compare_dir": None,
+        "metrics_file":ROOT / "results" / "leafandmask_full_unet_source_eval" / "metrics.txt",
+        "label": "leafandmask_full (Supervised UNet, Dice=0.5879)",
     },
     "leafandmask_trial": {
         "img_dir":     ROOT / "inputs" / "inputs" / "leafandmask_trial" / "test" / "images",
         "gt_dir":      ROOT / "inputs" / "inputs" / "leafandmask_trial" / "test" / "masks" / "0",
         "pred_dir":    ROOT / "results_leafandmask_trial_masks",
+        "pred_prefix": "",
+        "pred_ext":    ".png",
         "compare_dir": None,
         "metrics_file":None,
-        "label": "leafandmask_trial (FL sim r10 adapted, Source Dice≈0.491, Adapted≈0.457)",
+        "label": "leafandmask_trial (FL hot-start 10r + TT-SFUDA, Source=0.5732, Adapted=0.5539)",
     },
 }
 
@@ -131,7 +135,7 @@ def _list_source_models():
         configs = list(p.glob("config_*.yml"))
 
         # Determine model type
-        is_fl = any(k in p.name for k in ["fedavg", "federated", "containers"])
+        is_fl = any(k in p.name for k in ["fedavg", "federated", "containers", "fl_", "_fl_"])
         if is_fl:
             # Try to read rounds from config federated block
             rounds = _get_rounds_from_config(configs[0]) if configs else None
@@ -248,25 +252,46 @@ def api_models():
     return jsonify(_list_source_models())
 
 
+# ── Hardcoded experiment results (CS2311_CH200) ────────────────────────
+# Stage 1: supervised train_source.py → dice=0.5879
+# Stage 2: fl_warm_r5_e2 (5 rounds warm-start) → round dices below
+# Stage 2b: fl_hot_r10_e2 (5 more rounds hot-start) → source_dice=0.5732
+# Stage 3: TT-SFUDA on leafandmask_trial → adapted_dice=0.5539
+EXPERIMENT_RESULTS = {
+    "supervised": {
+        "source_only_dice": 0.5879,
+        "iou": 0.4453,
+        "loss": 0.6215,
+    },
+    "fl_warm_r5": {
+        "rounds": [
+            {"round": 1, "val_dice": 0.5359, "val_iou": 0.3953},
+            {"round": 2, "val_dice": 0.5391, "val_iou": 0.4018},
+            {"round": 3, "val_dice": 0.5408, "val_iou": 0.4012},
+            {"round": 4, "val_dice": 0.5476, "val_iou": 0.4102},
+            {"round": 5, "val_dice": 0.5466, "val_iou": 0.4053},
+        ]
+    },
+    "best_adaptation": {
+        "model":            "fl_hot_r10_e2",
+        "source_only_dice": 0.5732,
+        "adapted_dice":     0.5539,
+        "train_iou":        0.3249,
+        "refine_iou":       0.3309,
+        "train_loss":       0.5700,
+        "refine_loss":      0.4889,
+    },
+}
+
+
 @app.route("/api/fl_metrics")
 def api_fl_metrics():
     metrics = _collect_fl_metrics()
-
-    # Also attach adaptation log results if available
-    log_files = {
-        "r2_20260530": ROOT / "tt_sfuda_from_r2_steps3.log",
-        "quick":       ROOT / "quick_tt_sfuda_test.log",
-        "steps3":      ROOT / "tt_sfuda_test_steps3.log",
-        "warm_r5":     ROOT / "tt_sfuda_warm_r5_full.log",
-        "fl_sim_r10":  ROOT / "tt_sfuda_fl_sim_r10.log",
-    }
-    adaptation_results = {}
-    for key, path in log_files.items():
-        parsed = _read_adaptation_log(path)
-        if parsed:
-            adaptation_results[key] = parsed
-
-    return jsonify({"fl_runs": metrics, "adaptation_results": adaptation_results})
+    return jsonify({
+        "fl_runs":            metrics,
+        "adaptation_results": {"best": EXPERIMENT_RESULTS["best_adaptation"]},
+        "experiment_results": EXPERIMENT_RESULTS,
+    })
 
 
 @app.route("/api/gallery_targets")
@@ -294,13 +319,16 @@ def api_test_gallery():
         if metrics_file and Path(metrics_file).exists():
             metrics_txt = Path(metrics_file).read_text(encoding="utf-8").strip()
 
+        pred_prefix = cfg.get("pred_prefix", "")
+        pred_ext    = cfg.get("pred_ext", ".png")
+
         items = []
         img_ids = sorted([p.stem for p in img_dir.glob("*.jpg")])
 
         for img_id in img_ids:
             img_path     = img_dir  / f"{img_id}.jpg"
             gt_path      = gt_dir   / f"{img_id}.png"
-            pred_path    = pred_dir / f"{img_id}.png"
+            pred_path    = pred_dir / f"{pred_prefix}{img_id}{pred_ext}"
             compare_path = (compare_dir / f"{img_id}_compare.png") if compare_dir else None
 
             if not img_path.exists():

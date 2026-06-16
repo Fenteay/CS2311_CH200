@@ -135,8 +135,8 @@ def parse_args():
                         help='Use CosineAnnealingLR scheduler (recommended).')
     parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--lr', default=1e-4, type=float)
-    parser.add_argument('--img-ext', default='.png', dest='img_ext',
-                        help='Image file extension (default: .png). Use .jpg for greenhouse_clean.')
+    parser.add_argument('--img-ext', default='.jpg', dest='img_ext',
+                        help='Image file extension (default: .jpg). Use .png for other datasets.')
     parser.add_argument('--missing-mask-strategy', default='error', choices=['error', 'zeros'],
                         help='How to handle missing masks: error (strict) or zeros (fallback for smoke tests).')
     parser.add_argument('--export-dir', default=None,
@@ -300,7 +300,7 @@ def evaluate_and_export(test_loader, model, criterion, output_dir, pred_threshol
                 final_mask = postprocess_mask(final_mask, morph_close=morph_close, morph_open=morph_open, min_area=min_area)
 
             img_id = meta['img_id'][0] if isinstance(meta['img_id'], list) else str(meta['img_id'])
-            save_path = os.path.join(output_dir, f"{img_id}.png")
+            save_path = os.path.join(output_dir, f"{img_id}.jpg")
             cv2.imwrite(save_path, final_mask)
 
             postfix = OrderedDict([
@@ -337,7 +337,7 @@ def main():
         'deep_supervision': False,
         'name': f"{sanitize_name(args.dataset)}_{args.arch.lower()}",
         'img_ext': args.img_ext,
-        'mask_ext': '.png',
+        'mask_ext': '.png',  # Masks are stored as .png
         'input_h': 512,
         'input_w': 512,
         'num_workers': args.num_workers,

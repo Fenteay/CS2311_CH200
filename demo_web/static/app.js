@@ -161,14 +161,14 @@ async function loadModels() {
     const res = await fetch("/api/models");
     const models = await res.json();
 
-    // Only show 2 models: best supervised + best FL
+    // Only show best models
     const PINNED = [
-      { name: "leafandmask_full_unet",                    label: "✓ Supervised — leafandmask_full_unet (Dice≈0.485)" },
-      { name: "fl_sim_r10_e3", label: "🕸️ FL sim r10 — 10 rounds total (Source Dice≈0.491)" },
+      { name: "leafandmask_full_unet", label: "Supervised  (Dice=0.5879)" },
+      { name: "fl_warm_r5_e2",         label: "FL warm 5r  (Dice=0.5476)" },
+      { name: "fl_hot_r10_e2",         label: "FL hot 10r  (Adapted=0.5539)" },
     ];
 
-    const selectors = ["predictSource", "adaptSource"];
-    selectors.forEach(selId => {
+    ["predictSource", "adaptSource"].forEach(selId => {
       const sel = document.getElementById(selId);
       sel.innerHTML = "";
       PINNED.forEach(p => {
@@ -179,9 +179,10 @@ async function loadModels() {
         opt.textContent = p.label;
         sel.appendChild(opt);
       });
-      // Default: supervised
-      sel.value = "leafandmask_full_unet";
     });
+    // Separate defaults: Predict → Supervised, Adaptation → best FL
+    document.getElementById("predictSource").value = "leafandmask_full_unet";
+    document.getElementById("adaptSource").value   = "fl_hot_r10_e2";
 
     // Build model table
     const wrap = document.getElementById("modelTable");
@@ -212,32 +213,24 @@ async function loadMetrics() {
     const res = await fetch("/api/fl_metrics");
     const data = await res.json();
 
-    // Check device from first available model — we infer from page
     document.getElementById("deviceBadge").textContent = "CPU / CUDA (auto)";
 
-    // Fill adaptation results from log — prefer fl_sim_r10, then warm_r5, fallback to r2
-    const adapt = data.adaptation_results || {};
-    const bestRun = adapt["fl_sim_r10"] || adapt["warm_r5"] || adapt["r2_20260530"] || {};
-    setCard("cv-src-dice",   bestRun.source_only_dice?.toFixed(4) ?? "—");
-    setCard("cv-ada-dice",   bestRun.adapted_dice?.toFixed(4)     ?? "—");
-    setCard("cv-train-iou",  bestRun.train_iou?.toFixed(4)        ?? "—");
-    setCard("cv-refine-iou", bestRun.refine_iou?.toFixed(4)       ?? "—");
+    const exp  = data.experiment_results || {};
+    const best = exp.best_adaptation    || {};
+    const sup  = exp.supervised         || {};
 
-    // FL rounds from best run config
-    if (adapt["fl_sim_r10"]) {
-      setCard("cv-rounds", "10");
-    } else if (adapt["warm_r5"]) {
-      setCard("cv-rounds", "5");
-    } else if (adapt["r2_20260530"]) {
-      setCard("cv-rounds", "2");
-    }
+    setCard("cv-rounds",    best.model ? "10" : "—");
+    setCard("cv-src-dice",  best.source_only_dice?.toFixed(4) ?? "—");
+    setCard("cv-ada-dice",  best.adapted_dice?.toFixed(4)     ?? "—");
+    setCard("cv-train-iou", best.train_iou?.toFixed(4)        ?? "—");
+    setCard("cv-refine-iou",best.refine_iou?.toFixed(4)       ?? "—");
 
-    // Adaptation bar chart
-    drawAdaptationChart(bestRun);
+    // Adaptation bar chart — pass best + supervised baseline
+    drawAdaptationChart(best, sup);
 
-    // Draw FL history chart
-    const flRun = (data.fl_runs || []).find(r => r.rounds?.length > 0);
-    if (flRun) drawFlHistoryChart(flRun);
+    // FL history line chart — pass rounds array directly
+    const rounds = exp.fl_warm_r5?.rounds;
+    if (rounds?.length) drawFlHistoryChart(rounds);
 
   } catch(e) {
     console.error("loadMetrics:", e);
@@ -249,14 +242,14 @@ function setCard(id, val) {
   if (el) el.textContent = val;
 }
 
-function drawFlHistoryChart(run) {
+function drawFlHistoryChart(rounds) {
   const ctx = document.getElementById("flHistoryChart");
   if (!ctx) return;
   if (flHistoryChart) flHistoryChart.destroy();
 
-  const labels  = run.rounds.map(r => `Round ${r.round}`);
-  const iouData = run.rounds.map(r => parseFloat(r.train_iou.toFixed(4)));
-  const lossData= run.rounds.map(r => parseFloat(r.train_loss.toFixed(4)));
+  const labels   = rounds.map(r => `Round ${r.round}`);
+  const diceData = rounds.map(r => parseFloat(r.val_dice.toFixed(4)));
+  const iouData  = rounds.map(r => parseFloat(r.val_iou.toFixed(4)));
 
   flHistoryChart = new Chart(ctx, {
     type: "line",
@@ -264,20 +257,20 @@ function drawFlHistoryChart(run) {
       labels,
       datasets: [
         {
-          label: "Train IoU",
-          data: iouData,
+          label: "Val Dice",
+          data: diceData,
           borderColor: "rgba(52,211,153,0.9)",
           backgroundColor: "rgba(52,211,153,0.12)",
           borderWidth: 2, pointRadius: 5, fill: true, tension: 0.3,
-          yAxisID: "yIoU",
+          yAxisID: "y",
         },
         {
-          label: "Train Loss",
-          data: lossData,
-          borderColor: "rgba(251,191,36,0.85)",
-          backgroundColor: "rgba(251,191,36,0.08)",
+          label: "Val IoU",
+          data: iouData,
+          borderColor: "rgba(79,156,249,0.85)",
+          backgroundColor: "rgba(79,156,249,0.08)",
           borderWidth: 2, pointRadius: 5, fill: true, tension: 0.3,
-          yAxisID: "yLoss",
+          yAxisID: "y",
         },
       ]
     },
@@ -285,30 +278,29 @@ function drawFlHistoryChart(run) {
       responsive: true,
       plugins: { legend: { labels: { color: "#94a3b8" } } },
       scales: {
-        x:     { ticks: { color: "#94a3b8" }, grid: { color: "#2e3250" } },
-        yIoU:  { position: "left",  min: 0, ticks: { color: "#34d399" }, grid: { color: "#2e3250" }, title: { display: true, text: "IoU", color: "#34d399" } },
-        yLoss: { position: "right", ticks: { color: "#fbbf24" }, grid: { drawOnChartArea: false }, title: { display: true, text: "Loss", color: "#fbbf24" } },
+        x: { ticks: { color: "#94a3b8" }, grid: { color: "#2e3250" } },
+        y: { min: 0.3, max: 0.7, ticks: { color: "#94a3b8" }, grid: { color: "#2e3250" },
+             title: { display: true, text: "Score", color: "#94a3b8" } },
       }
     }
   });
 }
 
-function drawAdaptationChart(r2) {
+function drawAdaptationChart(best, sup) {
   const ctx = document.getElementById("adaptationChart");
   if (!ctx) return;
   if (adaptationChart) adaptationChart.destroy();
 
-  const labels = ["Source-Only Dice", "Train IoU", "Refine IoU", "Adapted Dice"];
+  const supDice = sup?.source_only_dice ?? 0;
+  const labels = ["Supervised Baseline", "FL Source-Only", "FL Adapted"];
   const values = [
-    r2.source_only_dice ?? 0,
-    r2.train_iou        ?? 0,
-    r2.refine_iou       ?? 0,
-    r2.adapted_dice     ?? 0,
+    supDice,
+    best.source_only_dice ?? 0,
+    best.adapted_dice     ?? 0,
   ];
   const colors = [
     "rgba(251,191,36,0.8)",
     "rgba(79,156,249,0.8)",
-    "rgba(167,139,250,0.8)",
     "rgba(52,211,153,0.8)",
   ];
 
@@ -317,7 +309,7 @@ function drawAdaptationChart(r2) {
     data: {
       labels,
       datasets: [{
-        label: "Score",
+        label: "Dice Score",
         data: values,
         backgroundColor: colors,
         borderRadius: 6,
@@ -333,7 +325,7 @@ function drawAdaptationChart(r2) {
       },
       scales: {
         x: { ticks: { color: "#94a3b8" }, grid: { color: "#2e3250" } },
-        y: { min: 0, max: 1, ticks: { color: "#94a3b8" }, grid: { color: "#2e3250" } }
+        y: { min: 0.4, max: 0.7, ticks: { color: "#94a3b8" }, grid: { color: "#2e3250" } }
       }
     }
   });
