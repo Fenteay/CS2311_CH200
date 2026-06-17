@@ -181,6 +181,22 @@ Là tập con của leafandmask_full, gồm các ảnh khó hơn (lá cây có v
 | leafandmask_trial | Miền đích | — | 20 | 20 |
 | **Tổng** | | **1.410** | **138** | **1.548** |
 
+### 3.3.1 So sánh các miền dữ liệu
+
+| Tiêu chí | leafandmask_full | leaf_hrf_style | leaf_rite_style | leafandmask_trial |
+|---|---|---|---|---|
+| **Nguồn gốc** | Dataset gốc từ Kaggle [27] | Dẫn xuất từ leafandmask_full | Dẫn xuất từ leafandmask_full | Tập con của leafandmask_full |
+| **Kỹ thuật tạo ra** | Ảnh thật, không chỉnh sửa | Histogram matching theo màu HRF | Histogram matching theo màu RITE | Lọc thủ công các ảnh khó |
+| **Màu sắc** | Xanh lá tự nhiên, tone ấm | Sáng hơn, contrast cao, xanh đậm | Tối hơn, mờ, nhạt màu, tone lạnh | Giống leafandmask_full (gốc) |
+| **Độ sáng** | Trung bình | Cao | Thấp | Trung bình |
+| **Độ tương phản** | Tự nhiên | Cao (rõ nét) | Thấp (phẳng) | Tự nhiên |
+| **Domain shift so với full** | — (baseline) | Có (màu sắc, contrast) | Có (màu sắc, độ sáng) | Nhỏ (cùng gốc, ảnh khó hơn) |
+| **Có nhãn mask** | Có (train + test) | Có (train, dùng cùng mask gốc) | Có (train, dùng cùng mask gốc) | Có (chỉ dùng để đánh giá cuối) |
+| **Vai trò trong FL** | Client 1 (dữ liệu gốc) | Client 2 (domain shift 1) | Client 3 (domain shift 2) | Không tham gia FL |
+| **Vai trò trong SFUDA** | Miền nguồn | Không dùng trực tiếp | Không dùng trực tiếp | **Miền đích** |
+
+> **Lưu ý:** `leaf_hrf_style` và `leaf_rite_style` có **cùng nội dung ảnh** (cùng lá cây, cùng vùng bệnh) với `leafandmask_full`, chỉ khác về phân phối màu sắc. Đây là cách tạo domain shift có kiểm soát: giữ nguyên semantic content nhưng thay đổi appearance để mô phỏng điều kiện chụp ảnh khác nhau (thiết bị, ánh sáng, môi trường).
+
 ### 3.4 Đặc điểm kỹ thuật của dữ liệu
 
 **Định dạng ảnh:** JPEG (.jpg) cho ảnh đầu vào, PNG cho một số mask.
@@ -674,6 +690,9 @@ Báo cáo này đã trình bày một pipeline hoàn chỉnh kết hợp **Học
 ---
 
 ## Tài liệu tham khảo (References)
+[1] Vibashan, V. S., Valanarasu, J. M. J., & Patel, V. M. (2023). Target and task specific source-free domain adaptive image segmentation. In *CVPR*, pp. 7998–8008. arXiv:2203.15792. Code: https://github.com/Vibashan/tt-sfuda.
+ <!-- *(Bai bao goc cua phuong phap TT-SFUDA duoc ap dung trong du an nay. 	t_sfuda_2d.py duoc xay dung dua tren y tuong two-stage pipeline: target-specific adaptation (Phase 1) va task-specific adaptation (Phase 2) tu bai bao nay.)* -->
+
 
 [2] Savary, S., Willocquet, L., Pethybridge, S. J., Esker, P., McRoberts, N., & Nelson, A. (2019). The global burden of pathogens and pests on major food crops. *Nature Ecology & Evolution*, 3(3), 430–439.
 
@@ -782,8 +801,6 @@ Báo cáo này đã trình bày một pipeline hoàn chỉnh kết hợp **Học
 [53] Berman, M., Triki, A. R., & Blaschko, M. B. (2018). The Lovasz-Softmax loss: A tractable surrogate for the optimization of the intersection-over-union measure in neural networks. In *CVPR*, pp. 4413–4421. Code: https://github.com/bermanmaxim/LovaszSoftmax *(Su dung trong `losses.py` — `LovaszHingeLoss` cho binary segmentation.)*
 
 [54] Beutel, D. J., Topal, T., Mathur, A., Qiu, X., Parcollet, T., de Gusmao, P. P. B., & Lane, N. D. (2020). Flower: A friendly federated learning research framework. *arXiv preprint arXiv:2007.14390*. Code: https://github.com/adap/flower *(Framework FL duoc su dung trong `federated_flwr_common.py` va `fl_simulate.py`.)*
-
-[1] Vibashan, V. S., Valanarasu, J. M. J., & Patel, V. M. (2023). Target and task specific source-free domain adaptive image segmentation. In *CVPR*, pp. 7998–8008. arXiv:2203.15792. Code: https://github.com/Vibashan/tt-sfuda *(Bai bao goc cua phuong phap TT-SFUDA duoc ap dung trong du an nay. 	t_sfuda_2d.py duoc xay dung dua tren y tuong two-stage pipeline: target-specific adaptation (Phase 1) va task-specific adaptation (Phase 2) tu bai bao nay.)*
 
 [55] Wei, T., et al. (2022). *PlantSeg: Plant disease segmentation with domain adaptation*. GitHub. https://github.com/tqwei05/PlantSeg *(Pipeline to chuc du lieu va cau truc thu muc dataset duoc tham khao tu repository nay.)*
 
