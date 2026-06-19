@@ -163,9 +163,8 @@ async function loadModels() {
 
     // Only show best models
     const PINNED = [
-      { name: "leafandmask_full_unet", label: "Supervised  (Dice=0.5879)" },
-      { name: "fl_warm_r5_e2",         label: "FL warm 5r  (Dice=0.5476)" },
-      { name: "fl_hot_r10_e2",         label: "FL hot 10r  (Adapted=0.5539)" },
+      { name: "leafandmask_full_resunet", label: "Supervised ResUNet  (Dice=0.8036 | TTA=0.8261)" },
+      { name: "fl_resunet_r10_e2",        label: "FL ResUNet 10r  (Val Dice=0.8047) ← Best" },
     ];
 
     ["predictSource", "adaptSource"].forEach(selId => {
@@ -180,9 +179,9 @@ async function loadModels() {
         sel.appendChild(opt);
       });
     });
-    // Separate defaults: Predict → Supervised, Adaptation → best FL
-    document.getElementById("predictSource").value = "leafandmask_full_unet";
-    document.getElementById("adaptSource").value   = "fl_hot_r10_e2";
+    // Separate defaults: Predict → ResUNet supervised, Adaptation → best FL
+    document.getElementById("predictSource").value = "leafandmask_full_resunet";
+    document.getElementById("adaptSource").value   = "fl_resunet_r10_e2";
 
     // Build model table
     const wrap = document.getElementById("modelTable");
@@ -218,18 +217,19 @@ async function loadMetrics() {
     const exp  = data.experiment_results || {};
     const best = exp.best_adaptation    || {};
     const sup  = exp.supervised         || {};
+    const fl   = exp.fl_rounds          || {};
 
-    setCard("cv-rounds",    best.model ? "10" : "—");
-    setCard("cv-src-dice",  best.source_only_dice?.toFixed(4) ?? "—");
-    setCard("cv-ada-dice",  best.adapted_dice?.toFixed(4)     ?? "—");
-    setCard("cv-train-iou", best.train_iou?.toFixed(4)        ?? "—");
-    setCard("cv-refine-iou",best.refine_iou?.toFixed(4)       ?? "—");
+    setCard("cv-rounds",    fl.rounds     ?? "—");
+    setCard("cv-src-dice",  sup.dice?.toFixed(4)                   ?? "—");
+    setCard("cv-ada-dice",  best.adapted_dice?.toFixed(4)          ?? "—");
+    setCard("cv-train-iou", best.stage1_train_iou_final?.toFixed(4) ?? "—");
+    setCard("cv-refine-iou",best.stage2_refine_iou_final?.toFixed(4)?? "—");
 
-    // Adaptation bar chart — pass best + supervised baseline
-    drawAdaptationChart(best, sup);
+    // Adaptation bar chart
+    drawAdaptationChart(best, sup, fl);
 
-    // FL history line chart — pass rounds array directly
-    const rounds = exp.fl_warm_r5?.rounds;
+    // FL history line chart
+    const rounds = fl.round_history;
     if (rounds?.length) drawFlHistoryChart(rounds);
 
   } catch(e) {
@@ -279,29 +279,30 @@ function drawFlHistoryChart(rounds) {
       plugins: { legend: { labels: { color: "#94a3b8" } } },
       scales: {
         x: { ticks: { color: "#94a3b8" }, grid: { color: "#2e3250" } },
-        y: { min: 0.3, max: 0.7, ticks: { color: "#94a3b8" }, grid: { color: "#2e3250" },
+        y: { min: 0.6, max: 0.82, ticks: { color: "#94a3b8" }, grid: { color: "#2e3250" },
              title: { display: true, text: "Score", color: "#94a3b8" } },
       }
     }
   });
 }
 
-function drawAdaptationChart(best, sup) {
+function drawAdaptationChart(best, sup, fl) {
   const ctx = document.getElementById("adaptationChart");
   if (!ctx) return;
   if (adaptationChart) adaptationChart.destroy();
 
-  const supDice = sup?.source_only_dice ?? 0;
-  const labels = ["Supervised Baseline", "FL Source-Only", "FL Adapted"];
+  const labels = ["Supervised\n(ResUNet)", "+ TTA", "FL Round 10", "TT-SFUDA\nAdapted"];
   const values = [
-    supDice,
-    best.source_only_dice ?? 0,
-    best.adapted_dice     ?? 0,
+    sup?.dice          ?? 0,
+    sup?.dice_tta      ?? 0,
+    fl?.val_dice       ?? 0,
+    best?.adapted_dice ?? 0,
   ];
   const colors = [
-    "rgba(251,191,36,0.8)",
-    "rgba(79,156,249,0.8)",
-    "rgba(52,211,153,0.8)",
+    "rgba(251,191,36,0.85)",
+    "rgba(251,146,60,0.85)",
+    "rgba(79,156,249,0.85)",
+    "rgba(52,211,153,0.85)",
   ];
 
   adaptationChart = new Chart(ctx, {
@@ -325,7 +326,7 @@ function drawAdaptationChart(best, sup) {
       },
       scales: {
         x: { ticks: { color: "#94a3b8" }, grid: { color: "#2e3250" } },
-        y: { min: 0.4, max: 0.7, ticks: { color: "#94a3b8" }, grid: { color: "#2e3250" } }
+        y: { min: 0.6, max: 0.87, ticks: { color: "#94a3b8" }, grid: { color: "#2e3250" } }
       }
     }
   });
@@ -369,40 +370,6 @@ async function runPredict() {
       <b>Inference time:</b> ${elapsed}s
     `;
     panels.style.display = "flex";
-
-    // Disease analysis card
-    const pct = parseFloat(data.fg_ratio);
-    const card     = document.getElementById("diseaseCard");
-    const verdict  = document.getElementById("diseaseVerdict");
-    const barFill  = document.getElementById("diseaseBarFill");
-    const diseasePct = document.getElementById("diseasePct");
-    const note     = document.getElementById("diseaseNote");
-    card.style.display = "block";
-
-    let level, color, emoji, noteText;
-    if (pct < 1) {
-      level = "Khỏe mạnh"; color = "#22c55e"; emoji = "🟢";
-      noteText = "Không phát hiện vùng bệnh trên lá.";
-    } else if (pct < 5) {
-      level = "Bệnh nhẹ"; color = "#a3e635"; emoji = "🟡";
-      noteText = "Phát hiện vùng bệnh nhỏ, có thể theo dõi thêm.";
-    } else if (pct < 15) {
-      level = "Bệnh trung bình"; color = "#f59e0b"; emoji = "🟠";
-      noteText = "Vùng bệnh đáng kể, nên xử lý sớm.";
-    } else if (pct < 40) {
-      level = "Bệnh nặng"; color = "#f97316"; emoji = "🟠";
-      noteText = "Lá bị bệnh nhiều, cần can thiệp kịp thời.";
-    } else {
-      level = "Rất nặng"; color = "#ef4444"; emoji = "🔴";
-      noteText = "Hơn 40% diện tích lá bị ảnh hưởng.";
-    }
-
-    verdict.innerHTML = `<span style="font-size:1.5rem">${emoji}</span> <span style="color:${color};font-weight:700;font-size:1.2rem">${level}</span>`;
-    barFill.style.width = Math.min(pct, 100) + "%";
-    barFill.style.background = color;
-    diseasePct.textContent = pct.toFixed(1) + "%";
-    diseasePct.style.color = color;
-    note.innerHTML = noteText + `<br><span style="color:#64748b;font-size:0.78rem">⚠ Lưu ý: model chỉ được train trên <b>lá bệnh</b> — không thể phân biệt lá khỏe hoàn toàn. Kết quả chỉ mang tính tham khảo.</span>`;
 
   } catch(e) {
     showError(errBox, e.toString());

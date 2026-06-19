@@ -243,7 +243,7 @@ Hệ thống được thiết kế theo pipeline ba giai đoạn:
 
 ```
 [Giai đoạn 1]              [Giai đoạn 2]              [Giai đoạn 3]
-Supervised Training   ->   Federated Learning   ->   TT-SFUDA Adaptation
+Unsupervised Training   ->   Federated Learning   ->   TT-SFUDA Adaptation
   (leafandmask_full)      (3 clients x 10 rounds)   (leafandmask_trial)
 
   ResUNet (ResNet34)       FedAvg aggregation         Pseudo-label + EMA

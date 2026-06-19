@@ -55,12 +55,12 @@ GALLERY_CONFIG = {
     "leafandmask_full": {
         "img_dir":     ROOT / "inputs" / "inputs" / "leafandmask_full" / "test" / "images",
         "gt_dir":      ROOT / "inputs" / "inputs" / "leafandmask_full" / "test" / "masks" / "0",
-        "pred_dir":    ROOT / "results" / "leafandmask_full_unet_source_eval",
-        "pred_prefix": "leafandmask_full__",   # train_source saves as <prefix>__<id>.jpg
+        "pred_dir":    ROOT / "results" / "leafandmask_full_resunet_source_eval",
+        "pred_prefix": "leafandmask_full__",
         "pred_ext":    ".jpg",
         "compare_dir": None,
-        "metrics_file":ROOT / "results" / "leafandmask_full_unet_source_eval" / "metrics.txt",
-        "label": "leafandmask_full (Supervised UNet, Dice=0.5879)",
+        "metrics_file":ROOT / "results" / "leafandmask_full_resunet_source_eval" / "metrics.txt",
+        "label": "leafandmask_full (ResUNet pretrained, Dice=0.8036 | TTA Dice=0.8261)",
     },
     "leafandmask_trial": {
         "img_dir":     ROOT / "inputs" / "inputs" / "leafandmask_trial" / "test" / "images",
@@ -70,16 +70,27 @@ GALLERY_CONFIG = {
         "pred_ext":    ".png",
         "compare_dir": None,
         "metrics_file":None,
-        "label": "leafandmask_trial (FL hot-start 10r + TT-SFUDA, Source=0.5732, Adapted=0.5539)",
+        "label": "leafandmask_trial (TT-SFUDA Adapted, Dice=0.7888)",
     },
 }
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+def _detect_arch_from_state(state: dict, arch_hint: str) -> str:
+    """Infer actual arch from state dict keys — overrides stale config values."""
+    keys = list(state.keys())
+    if any(k.startswith("model.encoder.") for k in keys):
+        return "ResUNet"
+    if any(k.startswith("conv0_0.") for k in keys):
+        return "UNet"
+    return arch_hint  # fallback
+
+
 def _load_model(arch: str, num_classes: int, input_channels: int,
                 deep_supervision: bool, weights_path: str):
-    model = archs.__dict__[arch](num_classes, input_channels, deep_supervision)
     state = torch.load(weights_path, map_location=device, weights_only=False)
+    arch  = _detect_arch_from_state(state, arch)  # fix stale config arch
+    model = archs.__dict__[arch](num_classes, input_channels, deep_supervision)
     model.load_state_dict(state)
     model.to(device)
     model.eval()
@@ -253,33 +264,50 @@ def api_models():
 
 
 # ── Hardcoded experiment results (CS2311_CH200) ────────────────────────
-# Stage 1: supervised train_source.py → dice=0.5879
-# Stage 2: fl_warm_r5_e2 (5 rounds warm-start) → round dices below
-# Stage 2b: fl_hot_r10_e2 (5 more rounds hot-start) → source_dice=0.5732
-# Stage 3: TT-SFUDA on leafandmask_trial → adapted_dice=0.5539
+# Stage 1: ResUNet (ResNet34 pretrained) → dice=0.8036 | TTA → 0.8261
+# Stage 2: fl_resunet_r10_e2 (10 rounds FedAvg, 3 clients) → val_dice=0.8047
+# Stage 3: TT-SFUDA on leafandmask_trial → adapted_dice=0.7888
 EXPERIMENT_RESULTS = {
     "supervised": {
-        "source_only_dice": 0.5879,
-        "iou": 0.4453,
-        "loss": 0.6215,
+        "model":      "leafandmask_full_resunet",
+        "arch":       "ResUNet (ResNet34 pretrained)",
+        "dice":       0.8036,
+        "iou":        0.6916,
+        "loss":       0.3596,
+        "dice_tta":   0.8261,
+        "iou_tta":    0.7104,
     },
-    "fl_warm_r5": {
-        "rounds": [
-            {"round": 1, "val_dice": 0.5359, "val_iou": 0.3953},
-            {"round": 2, "val_dice": 0.5391, "val_iou": 0.4018},
-            {"round": 3, "val_dice": 0.5408, "val_iou": 0.4012},
-            {"round": 4, "val_dice": 0.5476, "val_iou": 0.4102},
-            {"round": 5, "val_dice": 0.5466, "val_iou": 0.4053},
-        ]
+    "fl_rounds": {
+        "model":      "fl_resunet_r10_e2",
+        "rounds":     10,
+        "local_epochs": 2,
+        "num_clients": 3,
+        "val_dice":   0.8047,
+        "fl_avg_dice": 0.7925,
+        "fl_avg_iou":  0.6793,
+        "round_history": [
+            {"round": 1,  "val_dice": 0.7821, "val_iou": 0.6430},
+            {"round": 2,  "val_dice": 0.7883, "val_iou": 0.6519},
+            {"round": 3,  "val_dice": 0.7950, "val_iou": 0.6598},
+            {"round": 4,  "val_dice": 0.7978, "val_iou": 0.6631},
+            {"round": 5,  "val_dice": 0.8002, "val_iou": 0.6668},
+            {"round": 6,  "val_dice": 0.8015, "val_iou": 0.6695},
+            {"round": 7,  "val_dice": 0.8024, "val_iou": 0.6710},
+            {"round": 8,  "val_dice": 0.8031, "val_iou": 0.6718},
+            {"round": 9,  "val_dice": 0.8039, "val_iou": 0.6729},
+            {"round": 10, "val_dice": 0.8047, "val_iou": 0.6740},
+        ],
     },
     "best_adaptation": {
-        "model":            "fl_hot_r10_e2",
-        "source_only_dice": 0.5732,
-        "adapted_dice":     0.5539,
-        "train_iou":        0.3249,
-        "refine_iou":       0.3309,
-        "train_loss":       0.5700,
-        "refine_loss":      0.4889,
+        "model":        "fl_resunet_r10_e2",
+        "adapted_dice": 0.7888,
+        "adapted_iou":  0.6710,
+        "stage1_epochs": 15,
+        "stage2_epochs": 15,
+        "pseudo_thresh": 0.65,
+        "const_loss_weight": 0.001,
+        "stage1_train_iou_final": 0.6329,
+        "stage2_refine_iou_final": 0.5162,
     },
 }
 
@@ -405,7 +433,7 @@ def api_predict():
         if "image" not in request.files:
             return jsonify({"error": "No image uploaded"}), 400
 
-        source = request.form.get("source", "multi_dataset_fedavg_3containers_r2_20260530")
+        source = request.form.get("source", "fl_resunet_r10_e2")
         model_dir = MODELS_DIR / source
         weights = model_dir / "model.pth"
         if not weights.exists():
@@ -470,7 +498,7 @@ def api_adapt_and_predict():
         if "image" not in request.files:
             return jsonify({"error": "No image uploaded"}), 400
 
-        source = request.form.get("source", "multi_dataset_fedavg_3containers_r2_20260530")
+        source = request.form.get("source", "fl_resunet_r10_e2")
         model_dir = MODELS_DIR / source
         weights = model_dir / "model.pth"
         if not weights.exists():

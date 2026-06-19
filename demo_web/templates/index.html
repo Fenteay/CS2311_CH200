@@ -38,19 +38,19 @@
       <div class="card-value">3</div>
     </div>
     <div class="card">
-      <div class="card-label">Source-Only Dice</div>
+      <div class="card-label">Supervised Dice (ResUNet)</div>
       <div class="card-value text-yellow" id="cv-src-dice">—</div>
     </div>
     <div class="card">
-      <div class="card-label">Adapted Dice</div>
+      <div class="card-label">Adapted Dice (TT-SFUDA)</div>
       <div class="card-value text-green" id="cv-ada-dice">—</div>
     </div>
     <div class="card">
-      <div class="card-label">Train IoU (stage 1)</div>
+      <div class="card-label">Stage I Train IoU (final)</div>
       <div class="card-value text-blue" id="cv-train-iou">—</div>
     </div>
     <div class="card">
-      <div class="card-label">Refine IoU (stage 2)</div>
+      <div class="card-label">Stage II Refine IoU (final)</div>
       <div class="card-value text-purple" id="cv-refine-iou">—</div>
     </div>
   </div>
@@ -65,7 +65,7 @@
 
   <!-- FL Round history chart -->
   <div class="chart-box" style="margin-bottom:1.5rem">
-    <h3>FL Training History — Val Dice &amp; IoU per Round (fl_warm_r5_e2, warm-start)</h3>
+    <h3>FL Training History — Val Dice &amp; IoU per Round (fl_resunet_r10_e2, FedAvg 10 rounds)</h3>
     <canvas id="flHistoryChart" height="180"></canvas>
   </div>
 
@@ -85,7 +85,7 @@
       <div class="pipe-arrow">→</div>
       <div class="pipe-step active">
         <div class="pipe-icon">🧠</div>
-        <div class="pipe-label">Global Model<br><small>UNet (512×512)</small></div>
+        <div class="pipe-label">Global Model<br><small>ResUNet (ResNet34<br>pretrained, 512×512)</small></div>
       </div>
       <div class="pipe-arrow">→</div>
       <div class="pipe-step active">
@@ -106,8 +106,8 @@
   <h2>Test Set Results — Ground Truth vs Predicted</h2>
   <p class="section-desc">
     So sánh ảnh test với predicted mask.<br>
-    <b>Gallery 1:</b> 118 ảnh supervised baseline (Dice=0.5879).
-    <b>Gallery 2:</b> 20 ảnh FL hot-start adapted (Source Dice=0.5732, Adapted Dice=0.5539).
+    <b>Gallery 1:</b> 118 ảnh supervised ResUNet (Dice=0.8036, TTA=0.8261).
+    <b>Gallery 2:</b> 20 ảnh TT-SFUDA adapted trên leafandmask_trial (Adapted Dice=0.7888).
   </p>
 
   <div class="gallery-controls">
@@ -128,10 +128,9 @@
 <section id="predict-section" class="section">
   <h2>Segmentation Prediction</h2>
   <p class="section-desc">Upload a leaf image → get binary mask + heatmap từ model được chọn.<br>
-    <span style="color:var(--green)">✓ Supervised</span> = baseline (Dice=0.5879) &nbsp;| 
-    <span style="color:var(--yellow)">🕸️ FL warm 5r</span> = Dice=0.5476 &nbsp;| 
-    <span style="color:var(--yellow)">🕸️ FL hot 10r</span> = best (Source=0.5732, Adapted=0.5539)
-  </p>
+    <span style="color:var(--yellow)">★ Supervised ResUNet</span> = Dice=0.8036, TTA=0.8261 &nbsp;|
+    <span style="color:var(--green)">🕸️ FL ResUNet 10r</span> = Val Dice=0.8047 &nbsp;|
+    <span style="color:var(--blue)">🔄 TT-SFUDA</span> = Adapted Dice=0.7888
 
   <div class="demo-layout">
     <div class="demo-controls">
@@ -147,19 +146,6 @@
       <div class="loader" id="predictLoader"></div>
       <div class="error-box" id="predictError"></div>
       <div class="stats-box" id="predictStats"></div>
-    </div>
-
-    <!-- Disease analysis card -->
-    <div id="diseaseCard" style="display:none" class="disease-card">
-      <div class="disease-verdict" id="diseaseVerdict"></div>
-      <div class="disease-bar-wrap">
-        <div class="disease-bar-label">Vùng bệnh / tổng lá</div>
-        <div class="disease-bar-track">
-          <div class="disease-bar-fill" id="diseaseBarFill"></div>
-        </div>
-        <div class="disease-pct" id="diseasePct"></div>
-      </div>
-      <div class="disease-note" id="diseaseNote"></div>
     </div>
 
     <div class="result-panels" id="predictResults" style="display:none">
@@ -267,9 +253,9 @@
 </main>
 
 <footer>
-  TT-SFUDA + Federated Learning Demo &nbsp;|&nbsp; UNet 512×512 &nbsp;|&nbsp; FedAvg (3 clients, 5 rounds, warm-start)
+  TT-SFUDA + Federated Learning Demo &nbsp;|&nbsp; ResUNet (ResNet34 pretrained, 512×512) &nbsp;|&nbsp; FedAvg (3 clients, 10 rounds) &nbsp;|&nbsp; Adapted Dice=0.7888
 </footer>
 
-<script src="/static/app.js?v=3"></script>
+<script src="/static/app.js?v=4"></script>
 </body>
 </html>
