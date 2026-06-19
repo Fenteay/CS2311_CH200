@@ -35,6 +35,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument('--init-weights', required=True, help='Path to starting model weights (.pth)')
+    p.add_argument('--arch', default='ResUNet', choices=sorted(archs.__all__),
+                   help='Model architecture (must match init-weights checkpoint).')
     p.add_argument('--rounds', default=5, type=int, help='Number of additional FL rounds')
     p.add_argument('--local-epochs', default=3, type=int)
     p.add_argument('--num-clients', default=3, type=int)
@@ -73,7 +75,7 @@ def main():
     print(f"Init weights: {args.init_weights}")
 
     config = {
-        'arch': 'UNet',
+        'arch': args.arch,
         'num_classes': 1,
         'input_channels': 3,
         'deep_supervision': False,

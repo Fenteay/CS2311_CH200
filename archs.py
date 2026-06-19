@@ -6,7 +6,109 @@ import torch.nn.functional as F
 from base_networks import *
 from utils import *
 
-__all__ = ['UNet', 'NestedUNet']
+__all__ = ['UNet', 'NestedUNet', 'ResUNet', 'ResUNetPP', 'ResUNetEffB0', 'ResUNet50', 'ResUNet50PP', 'ResUNet34PP']
+
+
+class ResUNet(nn.Module):
+    """UNet with pretrained ResNet34 encoder from segmentation_models_pytorch."""
+    def __init__(self, num_classes=1, input_channels=3, deep_supervision=False, **kwargs):
+        super().__init__()
+        import segmentation_models_pytorch as smp
+        self.model = smp.Unet(
+            encoder_name='resnet34',
+            encoder_weights='imagenet',
+            in_channels=input_channels,
+            classes=num_classes,
+        )
+
+    def forward(self, x, mode=None):
+        if mode == 'const':
+            # Return (output_logits, encoder_features[0:4]) for Stage II consistency loss
+            features = self.model.encoder(x)   # list of 6 feature maps
+            decoder_output = self.model.decoder(features)
+            output = self.model.segmentation_head(decoder_output)
+            return output, features[1:5]       # 4 intermediate encoder features
+        return self.model(x)
+
+
+class ResUNetPP(nn.Module):
+    """UNet++ with pretrained EfficientNet-b3 encoder."""
+    def __init__(self, num_classes=1, input_channels=3, deep_supervision=False, **kwargs):
+        super().__init__()
+        import segmentation_models_pytorch as smp
+        self.model = smp.UnetPlusPlus(
+            encoder_name='efficientnet-b3',
+            encoder_weights='imagenet',
+            in_channels=input_channels,
+            classes=num_classes,
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class ResUNetEffB0(nn.Module):
+    """UNet++ with pretrained EfficientNet-b0 encoder (~3x faster than b3, stronger than ResNet34)."""
+    def __init__(self, num_classes=1, input_channels=3, deep_supervision=False, **kwargs):
+        super().__init__()
+        import segmentation_models_pytorch as smp
+        self.model = smp.UnetPlusPlus(
+            encoder_name='efficientnet-b0',
+            encoder_weights='imagenet',
+            in_channels=input_channels,
+            classes=num_classes,
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class ResUNet50(nn.Module):
+    """UNet with pretrained ResNet50 encoder — deeper than ResNet34, fully channels_last compatible."""
+    def __init__(self, num_classes=1, input_channels=3, deep_supervision=False, **kwargs):
+        super().__init__()
+        import segmentation_models_pytorch as smp
+        self.model = smp.Unet(
+            encoder_name='resnet50',
+            encoder_weights='imagenet',
+            in_channels=input_channels,
+            classes=num_classes,
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class ResUNet50PP(nn.Module):
+    """UNet++ with pretrained ResNet50 encoder — dense skip connections + strong encoder."""
+    def __init__(self, num_classes=1, input_channels=3, deep_supervision=False, **kwargs):
+        super().__init__()
+        import segmentation_models_pytorch as smp
+        self.model = smp.UnetPlusPlus(
+            encoder_name='resnet50',
+            encoder_weights='imagenet',
+            in_channels=input_channels,
+            classes=num_classes,
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class ResUNet34PP(nn.Module):
+    """UNet++ with pretrained ResNet34 encoder — dense skip connections, fits 4GB VRAM at batch=8."""
+    def __init__(self, num_classes=1, input_channels=3, deep_supervision=False, **kwargs):
+        super().__init__()
+        import segmentation_models_pytorch as smp
+        self.model = smp.UnetPlusPlus(
+            encoder_name='resnet34',
+            encoder_weights='imagenet',
+            in_channels=input_channels,
+            classes=num_classes,
+        )
+
+    def forward(self, x):
+        return self.model(x)
 
 
 class VGGBlock(nn.Module):

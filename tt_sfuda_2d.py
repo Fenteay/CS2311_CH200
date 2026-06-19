@@ -38,6 +38,9 @@ def parse_args():
                         help='Override stage1 epochs (0 = use model config default).')
     parser.add_argument('--stage2', default=0, type=int,
                         help='Override stage2 epochs (0 = use model config default).')
+    parser.add_argument('--const-loss-weight', default=0.01, type=float,
+                        help='Weight for consistency loss in Stage II (default 0.01). '
+                             'Lower values prevent catastrophic forgetting with large encoders.')
     args = parser.parse_args()
     return args
 
@@ -191,7 +194,7 @@ def sfuda_target(config, train_loader, pseduo_model, msrc_model, criterion, opti
     return OrderedDict([('loss', avg_meters['loss'].avg),
                         ('iou', avg_meters['iou'].avg)])
 
-def sfuda_task(train_loader, msrc_model, tgt_model, criterion, optimizer, max_train_steps=0):
+def sfuda_task(train_loader, msrc_model, tgt_model, criterion, optimizer, max_train_steps=0, const_loss_weight=0.01):
     avg_meters = {'loss': AverageMeter(), 'iou': AverageMeter()}
     msrc_model.eval()
     tgt_model.train()
@@ -216,7 +219,7 @@ def sfuda_task(train_loader, msrc_model, tgt_model, criterion, optimizer, max_tr
         output, tgt_feat = tgt_model(s_input, mode='const')
         seg_loss = criterion(output, ps_output)
         const_loss = consistency_loss(msrc_feat, tgt_feat)
-        loss = seg_loss + const_loss
+        loss = seg_loss + const_loss_weight * const_loss
         loss.backward()
         optimizer.step()
 
@@ -400,6 +403,7 @@ def main():
     tgt_model = archs.__dict__[config['arch']](config['num_classes'],
                                            config['input_channels'],
                                            config['deep_supervision'])
+    tgt_model.load_state_dict(torch.load(source_model_path, map_location=device))
     tgt_model.to(device)
     tgt_model.train()
 
@@ -462,6 +466,7 @@ def main():
             criterion,
             tgt_optimizer,
             max_train_steps=args.max_train_steps,
+            const_loss_weight=args.const_loss_weight,
         )
         print('refine_loss %.4f - refine_iou %.4f' % (train_log['loss'], train_log['iou']))
 

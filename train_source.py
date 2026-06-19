@@ -28,7 +28,6 @@ class WeightedBCEDiceLoss(torch.nn.Module):
         super().__init__()
         self.pos_weight = float(max(1.0, pos_weight))
         self.register_buffer('pos_weight_tensor', torch.tensor([self.pos_weight], dtype=torch.float32))
-
     def forward(self, input, target):
         bce = torch.nn.functional.binary_cross_entropy_with_logits(
             input,
@@ -44,6 +43,34 @@ class WeightedBCEDiceLoss(torch.nn.Module):
         dice = (2.0 * intersection.sum(1) + smooth) / (prob.sum(1) + target.sum(1) + smooth)
         dice = 1 - dice.mean()
         return 0.5 * bce + dice
+
+
+class FocalDiceLoss(torch.nn.Module):
+    """Focal Loss + Dice Loss — handles class imbalance better than BCE+Dice."""
+    def __init__(self, alpha=0.25, gamma=2.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, input, target):
+        # Focal loss
+        prob = torch.sigmoid(input)
+        bce = torch.nn.functional.binary_cross_entropy_with_logits(input, target, reduction='none')
+        p_t = prob * target + (1 - prob) * (1 - target)
+        alpha_t = self.alpha * target + (1 - self.alpha) * (1 - target)
+        focal = alpha_t * (1 - p_t) ** self.gamma * bce
+        focal_loss = focal.mean()
+
+        # Dice loss
+        smooth = 1e-5
+        num = target.size(0)
+        prob_flat = prob.view(num, -1)
+        target_flat = target.view(num, -1)
+        intersection = prob_flat * target_flat
+        dice = (2.0 * intersection.sum(1) + smooth) / (prob_flat.sum(1) + target_flat.sum(1) + smooth)
+        dice_loss = 1 - dice.mean()
+
+        return focal_loss + dice_loss
 
 
 def filter_ids_with_masks(img_ids, mask_dir, mask_ext, num_classes):
@@ -137,6 +164,8 @@ def parse_args():
     parser.add_argument('--lr', default=1e-4, type=float)
     parser.add_argument('--img-ext', default='.jpg', dest='img_ext',
                         help='Image file extension (default: .jpg). Use .png for other datasets.')
+    parser.add_argument('--img-size', default=512, type=int, dest='img_size',
+                        help='Input image size (H=W). Reducing to 256/320/384 speeds up training.')
     parser.add_argument('--missing-mask-strategy', default='error', choices=['error', 'zeros'],
                         help='How to handle missing masks: error (strict) or zeros (fallback for smoke tests).')
     parser.add_argument('--export-dir', default=None,
@@ -147,6 +176,8 @@ def parse_args():
                         help='Enable automatic positive class weighting from training mask ratio.')
     parser.add_argument('--pos-weight', default=1.0, type=float,
                         help='Manual positive class weight for BCE term (used when --auto-pos-weight is disabled).')
+    parser.add_argument('--loss', default='bce_dice', choices=['bce_dice', 'focal_dice'],
+                        help='Loss function: bce_dice (default) or focal_dice (Focal+Dice, better for imbalance).')
     parser.add_argument('--max-pos-weight', default=20.0, type=float,
                         help='Upper bound used when auto-computing positive class weight.')
     parser.add_argument('--num-workers', default=0, type=int,
@@ -163,6 +194,8 @@ def parse_args():
                         help='Kernel size for morphological opening to remove noise (0 = disabled).')
     parser.add_argument('--min-area', default=100, type=int,
                         help='Remove connected components with area < this value (0 = disabled).')
+    parser.add_argument('--tta', action='store_true',
+                        help='Enable Test-Time Augmentation (hflip, vflip, hflip+vflip) during evaluation.')
     args = parser.parse_args()
     return args
 
@@ -257,7 +290,36 @@ def train(train_loader, model, criterion, optimizer, use_amp=False, scaler=None,
     return avg_meters
 
 
-def evaluate_and_export(test_loader, model, criterion, output_dir, pred_threshold=0.5, expected_fg_ratio=None, morph_close=5, morph_open=3, min_area=100, use_amp=False, use_channels_last=False):
+def tta_predict(model, input, use_amp, use_channels_last):
+    """Average predictions over 6 TTA transforms: original + hflip + vflip + hflip+vflip + rot90 + rot270."""
+    preds = []
+    augments = [
+        lambda x: x,
+        lambda x: torch.flip(x, dims=[3]),                    # hflip
+        lambda x: torch.flip(x, dims=[2]),                    # vflip
+        lambda x: torch.flip(x, dims=[2, 3]),                 # hflip+vflip
+        lambda x: torch.rot90(x, k=1, dims=[2, 3]),           # rotate 90
+        lambda x: torch.rot90(x, k=3, dims=[2, 3]),           # rotate 270
+    ]
+    de_augments = [
+        lambda x: x,
+        lambda x: torch.flip(x, dims=[3]),
+        lambda x: torch.flip(x, dims=[2]),
+        lambda x: torch.flip(x, dims=[2, 3]),
+        lambda x: torch.rot90(x, k=3, dims=[2, 3]),           # undo rot90
+        lambda x: torch.rot90(x, k=1, dims=[2, 3]),           # undo rot270
+    ]
+    for aug, de_aug in zip(augments, de_augments):
+        inp_aug = aug(input)
+        if use_channels_last:
+            inp_aug = inp_aug.contiguous(memory_format=torch.channels_last)
+        with torch.cuda.amp.autocast(enabled=use_amp):
+            out = model(inp_aug)
+        preds.append(torch.sigmoid(de_aug(out)))
+    return torch.stack(preds, dim=0).mean(dim=0)  # averaged prob
+
+
+def evaluate_and_export(test_loader, model, criterion, output_dir, pred_threshold=0.5, expected_fg_ratio=None, morph_close=5, morph_open=3, min_area=100, use_amp=False, use_channels_last=False, use_tta=False):
     avg_meters = {
         'loss': AverageMeter(),
         'iou': AverageMeter(),
@@ -270,16 +332,29 @@ def evaluate_and_export(test_loader, model, criterion, output_dir, pred_threshol
     model.eval()
 
     with torch.no_grad():
-        pbar = tqdm(total=len(test_loader), desc='Evaluating')
+        pbar = tqdm(total=len(test_loader), desc=f'Evaluating{"(TTA)" if use_tta else ""}')
         for input, target, meta in test_loader:
             input = input.to(device, non_blocking=True)
             target = target.to(device, non_blocking=True)
-            if use_channels_last:
-                input = input.contiguous(memory_format=torch.channels_last)
 
-            with torch.cuda.amp.autocast(enabled=use_amp):
-                output = model(input)
-                loss = criterion(output, target)
+            if use_tta:
+                pred_prob = tta_predict(model, input, use_amp, use_channels_last)
+                # compute loss from un-augmented pass for logging
+                if use_channels_last:
+                    inp_cl = input.contiguous(memory_format=torch.channels_last)
+                else:
+                    inp_cl = input
+                with torch.cuda.amp.autocast(enabled=use_amp):
+                    output = model(inp_cl)
+                    loss = criterion(output, target)
+                # override output logit with TTA-averaged logit approximation for iou_score
+                output = torch.log(pred_prob.clamp(min=1e-6) / (1 - pred_prob).clamp(min=1e-6))
+            else:
+                if use_channels_last:
+                    input = input.contiguous(memory_format=torch.channels_last)
+                with torch.cuda.amp.autocast(enabled=use_amp):
+                    output = model(input)
+                    loss = criterion(output, target)
             iou, dice = iou_score(output, target)
 
             avg_meters['loss'].update(loss.item(), input.size(0))
@@ -338,8 +413,8 @@ def main():
         'name': f"{sanitize_name(args.dataset)}_{args.arch.lower()}",
         'img_ext': args.img_ext,
         'mask_ext': '.png',  # Masks are stored as .png
-        'input_h': 512,
-        'input_w': 512,
+        'input_h': args.img_size,
+        'input_w': args.img_size,
         'num_workers': args.num_workers,
         'use_amp': torch.cuda.is_available() and not args.disable_amp,
         'lr': args.lr,
@@ -482,7 +557,8 @@ def main():
         pos_weight = max(1.0, args.pos_weight)
         print(f"Manual pos_weight={pos_weight:.4f}, observed train_fg_ratio={train_fg_ratio:.6f}")
 
-    criterion = WeightedBCEDiceLoss(pos_weight=pos_weight).to(device)
+    criterion = WeightedBCEDiceLoss(pos_weight=pos_weight).to(device) if args.loss == 'bce_dice' else FocalDiceLoss(alpha=0.25, gamma=2.0).to(device)
+    print(f"Loss function: {args.loss}")
     optimizer = optim.Adam(model.parameters(), lr=config['lr'], weight_decay=config['weight_decay'])
     scaler = torch.cuda.amp.GradScaler(enabled=config['use_amp']) if torch.cuda.is_available() else None
     scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=config['lr'] * 0.01) if args.cosine_lr else None
@@ -524,6 +600,7 @@ def main():
         min_area=args.min_area,
         use_amp=config['use_amp'],
         use_channels_last=use_channels_last,
+        use_tta=args.tta,
     )
 
     metrics_path = os.path.join(export_dir, 'metrics.txt')
@@ -539,6 +616,8 @@ def main():
         f.write(f"train_fg_ratio: {train_fg_ratio:.6f}\n")
         f.write(f"pred_threshold: {args.pred_threshold:.4f}\n")
         f.write(f"pos_weight: {pos_weight:.6f}\n")
+        f.write(f"loss_fn: {args.loss}\n")
+        f.write(f"tta: {args.tta}\n")
         f.write(f"use_amp: {config['use_amp']}\n")
         f.write(f"pin_memory: {pin_memory}\n")
         f.write(f"persistent_workers: {use_persistent_workers}\n")
